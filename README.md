@@ -1,5 +1,5 @@
 # blip
-TODO: Write a description here
+A http/1.0 compliant server written in golang
 
 ## Installation
 TODO: Write installation instructions here
