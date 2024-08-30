@@ -7,17 +7,23 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 )
 
 type Header map[string]string
 
 const (
-	Host          = "Host"
-	ContentType   = "Content-Type"
-	ContentLength = "Content-Length"
-	UserAgent     = "User-Agent"
-	Accept        = "Accept"
-	Get           = "GET"
+	Host                = "Host"
+	ContentType         = "Content-Type"
+	ContentLength       = "Content-Length"
+	UserAgent           = "User-Agent"
+	Accept              = "Accept"
+	NotFound            = "404 Not Found"
+	BadRequest          = "400 Bad Request"
+	NotAllowed          = "405 Method Not Allowed"
+	InternalServerError = "500 Internal Server Error"
+	Ok                  = "200 OK"
+	Get                 = "GET"
 )
 
 type Request struct {
@@ -52,12 +58,14 @@ func handleConnection(conn net.Conn) {
 	metadata, err := reader.ReadString('\n')
 	if err != nil {
 		slog.Info("An error occured while reading the header", "error:", err)
+		WriteHeader(conn, "", BadRequest, 0)
 		conn.Close()
 		return
 	}
 	mTokens := strings.SplitN(metadata, " ", 3)
 	if method := strings.TrimSpace(mTokens[0]); method != "GET" {
 		slog.Info("Method not supported (at least for now)")
+		WriteHeader(conn, "", BadRequest, 0)
 		conn.Close()
 		return
 	}
@@ -66,6 +74,7 @@ func handleConnection(conn net.Conn) {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			slog.Info("An error occured while reading the header", "error:", err)
+			WriteHeader(conn, "", BadRequest, 0)
 			conn.Close()
 			return
 		}
@@ -81,15 +90,39 @@ func handleConnection(conn net.Conn) {
 	fileInfo, err := findFile(filepath)
 	if err != nil {
 		slog.Info("An error occured opening the file", "error", err)
+		WriteHeader(conn, "", NotFound, 0)
 		conn.Close()
 		return
 	}
 
-	os.ReadFile(fileInfo.Name())
+	data, _ := os.ReadFile(fileInfo.Name())
+	WriteHeader(conn, fileInfo.Name(), Ok, len(string(data)))
+	conn.Write(data)
 	conn.Close()
 	return
 }
 
+func WriteHeader(conn net.Conn, filename, status string, contentLength int) error {
+	res := fmt.Sprintf("HTTP/1.1 %s \r\nContent-Type: %s\r\nContent-Length: %d\r\nDate: %s\r\n\r\n", status, GetContentType(filename), contentLength, time.Now().Format(time.RFC1123))
+	conn.Write([]byte(res))
+	return nil
+}
+
+func GetContentType(filename string) string {
+	ext := strings.Split(filename, ".")
+	switch ext[len(ext)-1] {
+	case "js":
+		return "application/javascript"
+	case "jpg":
+		return "image/jpg"
+	case "png":
+		return "image/png"
+	case "html":
+		return "text/html"
+	default:
+		return "text/plain"
+	}
+}
 
 func findFile(filename string) (os.FileInfo, error) {
 	if filename == "/" {
@@ -98,6 +131,7 @@ func findFile(filename string) (os.FileInfo, error) {
 	if filename[0] == '/' {
 		filename = filename[1:]
 	}
+
 	fileInfo, err := os.Stat(filename)
 	if err != nil {
 		return nil, err
