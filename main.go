@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 )
 
@@ -16,15 +17,8 @@ const (
 	ContentLength = "Content-Length"
 	UserAgent     = "User-Agent"
 	Accept        = "Accept"
-	Httpv1        = "HTTP/1.1"
 	Get           = "GET"
-	Post          = "POST"
-	Delete        = "DELETE"
-	Put           = "PUT"
-	Patch         = "PATCH"
 )
-
-var AllowedMethods []string = []string{Get, Post, Delete, Patch}
 
 type Request struct {
 	method  string
@@ -40,8 +34,8 @@ func main() {
 		slog.Error("listen", "error", err)
 		return
 	}
-	slog.Info("Listening on port 6703")
 
+	slog.Info("Listening on port 6703")
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -55,18 +49,26 @@ func main() {
 func handleConnection(conn net.Conn) {
 	header := make(Header)
 	reader := bufio.NewReader(conn)
-	metadata, _ := reader.ReadString('\n')
+	metadata, err := reader.ReadString('\n')
+	if err != nil {
+		slog.Info("An error occured while reading the header", "error:", err)
+		conn.Close()
+		return
+	}
 	mTokens := strings.SplitN(metadata, " ", 3)
-	// method := strings.TrimSpace(mTokens[0])
-	// path := strings.TrimSpace(mTokens[1])
-	if version := strings.TrimSpace(mTokens[2]); version != Httpv1 {
-		slog.Info("HTTP Version not supported, please revert to 1.0")
+	if method := strings.TrimSpace(mTokens[0]); method != "GET" {
+		slog.Info("Method not supported (at least for now)")
 		conn.Close()
 		return
 	}
 
 	for {
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			slog.Info("An error occured while reading the header", "error:", err)
+			conn.Close()
+			return
+		}
 		if line == "\r\n" {
 			break
 		}
@@ -74,6 +76,43 @@ func handleConnection(conn net.Conn) {
 		header[tokens[0]] = strings.TrimSpace(tokens[1])
 	}
 
+	// this path should be sanitized to avoid malicious attacks
+	filepath := strings.TrimSpace(mTokens[1])
+	fileInfo, err := findFile(filepath)
+	if err != nil {
+		slog.Info("An error occured opening the file", "error", err)
+		conn.Close()
+		return
+	}
+
+	os.ReadFile(fileInfo.Name())
 	conn.Close()
 	return
+}
+
+
+func findFile(filename string) (os.FileInfo, error) {
+	if filename == "/" {
+		filename = "index.html"
+	}
+	if filename[0] == '/' {
+		filename = filename[1:]
+	}
+	fileInfo, err := os.Stat(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	if fileInfo.IsDir() {
+		if filename[len(filename)-1] == '/' {
+			filename = fmt.Sprintf("%sindex.html", filename)
+		} else {
+			filename = fmt.Sprintf("%s/index.html", filename)
+		}
+		fileInfo, err = os.Stat(filename)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return fileInfo, err
 }
