@@ -53,20 +53,20 @@ func main() {
 }
 
 func handleConnection(conn net.Conn) {
+	defer conn.Close()
+
 	header := make(Header)
 	reader := bufio.NewReader(conn)
 	metadata, err := reader.ReadString('\n')
 	if err != nil {
 		slog.Info("An error occured while reading the header", "error:", err)
 		WriteHeader(conn, "", BadRequest, 0)
-		conn.Close()
 		return
 	}
 	mTokens := strings.SplitN(metadata, " ", 3)
 	if method := strings.TrimSpace(mTokens[0]); method != "GET" {
 		slog.Info("Method not supported (at least for now)")
 		WriteHeader(conn, "", BadRequest, 0)
-		conn.Close()
 		return
 	}
 
@@ -75,7 +75,6 @@ func handleConnection(conn net.Conn) {
 		if err != nil {
 			slog.Info("An error occured while reading the header", "error:", err)
 			WriteHeader(conn, "", BadRequest, 0)
-			conn.Close()
 			return
 		}
 		if line == "\r\n" {
@@ -86,23 +85,21 @@ func handleConnection(conn net.Conn) {
 	}
 
 	// this path should be sanitized to avoid malicious attacks
-	filepath := strings.TrimSpace(mTokens[1])
-	fileInfo, err := findFile(filepath)
+	reqFilePath := strings.TrimSpace(mTokens[1])
+	fileInfo, filePath, err := findFile(reqFilePath)
 	if err != nil {
 		slog.Info("An error occured opening the file", "error", err)
 		WriteHeader(conn, "", NotFound, 0)
-		conn.Close()
 		return
 	}
 
-	data, _ := os.ReadFile(fileInfo.Name())
-	WriteHeader(conn, fileInfo.Name(), Ok, len(string(data)))
+	data, _ := os.ReadFile(filePath)
+	WriteHeader(conn, fileInfo.Name(), Ok, fileInfo.Size())
 	conn.Write(data)
-	conn.Close()
 	return
 }
 
-func WriteHeader(conn net.Conn, filename, status string, contentLength int) error {
+func WriteHeader(conn net.Conn, filename, status string, contentLength int64) error {
 	res := fmt.Sprintf("HTTP/1.1 %s \r\nContent-Type: %s\r\nContent-Length: %d\r\nDate: %s\r\n\r\n", status, GetContentType(filename), contentLength, time.Now().Format(time.RFC1123))
 	conn.Write([]byte(res))
 	return nil
@@ -124,7 +121,7 @@ func GetContentType(filename string) string {
 	}
 }
 
-func findFile(filename string) (os.FileInfo, error) {
+func findFile(filename string) (os.FileInfo, string, error) {
 	if filename == "/" {
 		filename = "index.html"
 	}
@@ -134,7 +131,7 @@ func findFile(filename string) (os.FileInfo, error) {
 
 	fileInfo, err := os.Stat(filename)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if fileInfo.IsDir() {
@@ -145,8 +142,8 @@ func findFile(filename string) (os.FileInfo, error) {
 		}
 		fileInfo, err = os.Stat(filename)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
-	return fileInfo, err
+	return fileInfo, filename, nil
 }
