@@ -24,6 +24,7 @@ const (
 	InternalServerError = "500 Internal Server Error"
 	Ok                  = "200 OK"
 	Get                 = "GET"
+	Head                = "HEAD"
 )
 
 type Request struct {
@@ -64,7 +65,8 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 	mTokens := strings.SplitN(metadata, " ", 3)
-	if method := strings.TrimSpace(mTokens[0]); method != "GET" {
+	method := strings.TrimSpace(mTokens[0])
+	if method != Get && method != Head {
 		slog.Info("Method not supported (at least for now)")
 		WriteHeader(conn, "", BadRequest, 0)
 		return
@@ -95,12 +97,14 @@ func handleConnection(conn net.Conn) {
 
 	data, _ := os.ReadFile(filePath)
 	WriteHeader(conn, fileInfo.Name(), Ok, fileInfo.Size())
-	conn.Write(data)
+	if method != Head {
+		conn.Write(data)
+	}
 	return
 }
 
 func WriteHeader(conn net.Conn, filename, status string, contentLength int64) error {
-	res := fmt.Sprintf("HTTP/1.1 %s \r\nContent-Type: %s\r\nContent-Length: %d\r\nDate: %s\r\n\r\n", status, GetContentType(filename), contentLength, time.Now().Format(time.RFC1123))
+	res := fmt.Sprintf("HTTP/1.1 %s \r\nContent-Type: %s\r\nContent-Length: %d\r\nDate: %s\r\n\r\n\r\n", status, GetContentType(filename), contentLength, time.Now().Format(time.RFC1123))
 	conn.Write([]byte(res))
 	return nil
 }
