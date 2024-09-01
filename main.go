@@ -1,16 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"strings"
+	"github.com/tonie-ng/blip/request"
 	"time"
 )
-
-type Header map[string]string
 
 const (
 	Host                = "Host"
@@ -27,13 +25,6 @@ const (
 	Head                = "HEAD"
 )
 
-type Request struct {
-	method  string
-	path    string
-	version string
-	header  Header
-	body    []byte
-}
 
 func main() {
 	ln, err := net.Listen("tcp", ":6703")
@@ -53,42 +44,12 @@ func main() {
 	}
 }
 
+
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
+	request, err := request.ParseRequest(conn)
 
-	header := make(Header)
-	reader := bufio.NewReader(conn)
-	metadata, err := reader.ReadString('\n')
-	if err != nil {
-		slog.Info("An error occured while reading the header", "error:", err)
-		WriteHeader(conn, "", BadRequest, 0)
-		return
-	}
-	mTokens := strings.SplitN(metadata, " ", 3)
-	method := strings.TrimSpace(mTokens[0])
-	if method != Get && method != Head {
-		slog.Info("Method not supported (at least for now)")
-		WriteHeader(conn, "", BadRequest, 0)
-		return
-	}
-
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			slog.Info("An error occured while reading the header", "error:", err)
-			WriteHeader(conn, "", BadRequest, 0)
-			return
-		}
-		if line == "\r\n" {
-			break
-		}
-		tokens := strings.SplitN(line, ":", 2)
-		header[tokens[0]] = strings.TrimSpace(tokens[1])
-	}
-
-	// this path should be sanitized to avoid malicious attacks
-	reqFilePath := strings.TrimSpace(mTokens[1])
-	fileInfo, filePath, err := findFile(reqFilePath)
+	fileInfo, filePath, err := findFile(request.Path)
 	if err != nil {
 		slog.Info("An error occured opening the file", "error", err)
 		WriteHeader(conn, "", NotFound, 0)
@@ -97,7 +58,7 @@ func handleConnection(conn net.Conn) {
 
 	data, _ := os.ReadFile(filePath)
 	WriteHeader(conn, fileInfo.Name(), Ok, fileInfo.Size())
-	if method != Head {
+	if request.Method != Head {
 		conn.Write(data)
 	}
 	return
