@@ -23,6 +23,7 @@ const (
 	InternalServerError = "500 Internal Server Error"
 	Ok                  = "200 OK"
 	Get                 = "GET"
+	Post                = "POST"
 	Head                = "HEAD"
 )
 
@@ -44,14 +45,7 @@ func main() {
 	}
 }
 
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	req, err := request.ParseRequest(conn)
-
-	if err != nil {
-		return
-	}
-
+func handleGetReq(conn net.Conn, req request.Request) {
 	fileInfo, filePath, err := findFile(req.Path)
 	if err != nil {
 		slog.Info("An error occured opening the file", "error", err)
@@ -67,9 +61,37 @@ func handleConnection(conn net.Conn) {
 	return
 }
 
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
+	req, err := request.ParseRequest(conn)
+	if err != nil {
+		return
+	}
+
+	switch req.Method {
+	case Get, Head:
+		handleGetReq(conn, req)
+	default:
+		WriteHeader(conn, "", NotAllowed, 0)
+	}
+}
+
 func WriteHeader(conn net.Conn, filename, status string, contentLength int64) error {
-	res := fmt.Sprintf("HTTP/1.1 %s \r\nContent-Type: %s\r\nContent-Length: %d\r\nDate: %s\r\n\r\n", status, GetContentType(filename), contentLength, time.Now().Format(time.RFC1123))
-	conn.Write([]byte(res))
+	var res strings.Builder
+	res.WriteString("HTTP/1.1 ")
+	res.WriteString(status)
+	res.WriteString("\r\n")
+	res.WriteString("Content-Type: ")
+	res.WriteString(GetContentType(filename))
+	res.WriteString("\r\n")
+	res.WriteString("Content-Length: ")
+	res.WriteString(fmt.Sprintf("%d", contentLength))
+	res.WriteString("\r\n")
+	res.WriteString("Date: ")
+	res.WriteString(time.Now().Format(time.RFC1123))
+	res.WriteString("\r\n\r\n")
+
+	conn.Write([]byte(res.String()))
 	return nil
 }
 
