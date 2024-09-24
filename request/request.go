@@ -2,9 +2,11 @@ package request
 
 import (
 	"bufio"
-	"net"
-	"strings"
+	"fmt"
 	"log/slog"
+	"net"
+	"strconv"
+	"strings"
 )
 
 type (
@@ -19,7 +21,7 @@ type (
 )
 
 func ParseRequest(conn net.Conn) (Request, error) {
-	request := Request{}
+	req := Request{}
 	reader := bufio.NewReader(conn)
 	metadata, err := reader.ReadString('\n')
 	if err != nil {
@@ -27,9 +29,9 @@ func ParseRequest(conn net.Conn) (Request, error) {
 		return Request{}, err
 	}
 	mtokens := strings.SplitN(metadata, " ", 3)
-	request.Method = strings.TrimSpace(mtokens[0])
-	request.Path = strings.TrimSpace(mtokens[1])
-	request.Version = strings.TrimSpace(mtokens[2])
+	req.Method = strings.TrimSpace(mtokens[0])
+	req.Path = strings.TrimSpace(mtokens[1])
+	req.Version = strings.TrimSpace(mtokens[2])
 
 	header := make(Header)
 	for {
@@ -44,6 +46,19 @@ func ParseRequest(conn net.Conn) (Request, error) {
 		tokens := strings.SplitN(line, ":", 2)
 		header[tokens[0]] = strings.TrimSpace(tokens[1])
 	}
-	request.Header = header
-	return request, nil
+	req.Header = header
+
+	// in future we might have to support PATCH or PUT
+	if req.Method == "POST" {
+		cLen, err := strconv.Atoi(header["Content-Length"])
+		if err != nil || cLen < 1 {
+			err = fmt.Errorf("No or invalid content length on %s request", req.Method)
+			return Request{}, err
+		}
+
+		body := make([]byte, cLen)
+		reader.Read(body)
+		req.Body = body
+	}
+	return req, nil
 }
