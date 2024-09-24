@@ -6,8 +6,9 @@ import (
 	"net"
 	"os"
 	"strings"
-	"github.com/tonie-ng/blip/request"
 	"time"
+
+	"github.com/tonie-ng/blip/request"
 )
 
 const (
@@ -24,7 +25,6 @@ const (
 	Get                 = "GET"
 	Head                = "HEAD"
 )
-
 
 func main() {
 	ln, err := net.Listen("tcp", ":6703")
@@ -44,12 +44,15 @@ func main() {
 	}
 }
 
-
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-	request, err := request.ParseRequest(conn)
+	req, err := request.ParseRequest(conn)
 
-	fileInfo, filePath, err := findFile(request.Path)
+	if err != nil {
+		return
+	}
+
+	fileInfo, filePath, err := findFile(req.Path)
 	if err != nil {
 		slog.Info("An error occured opening the file", "error", err)
 		WriteHeader(conn, "", NotFound, 0)
@@ -58,14 +61,14 @@ func handleConnection(conn net.Conn) {
 
 	data, _ := os.ReadFile(filePath)
 	WriteHeader(conn, fileInfo.Name(), Ok, fileInfo.Size())
-	if request.Method != Head {
+	if req.Method != Head {
 		conn.Write(data)
 	}
 	return
 }
 
 func WriteHeader(conn net.Conn, filename, status string, contentLength int64) error {
-	res := fmt.Sprintf("HTTP/1.1 %s \r\nContent-Type: %s\r\nContent-Length: %d\r\nDate: %s\r\n\r\n\r\n", status, GetContentType(filename), contentLength, time.Now().Format(time.RFC1123))
+	res := fmt.Sprintf("HTTP/1.1 %s \r\nContent-Type: %s\r\nContent-Length: %d\r\nDate: %s\r\n\r\n", status, GetContentType(filename), contentLength, time.Now().Format(time.RFC1123))
 	conn.Write([]byte(res))
 	return nil
 }
